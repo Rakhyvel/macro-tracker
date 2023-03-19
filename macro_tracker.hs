@@ -3,7 +3,7 @@ import Text.Printf
 
 -- Todo:
 --  [x] Put on Github
---  [ ] Put meals all on one single table, with the daily total and period total
+--  [x] Put meals all on one single table, with the daily total and period total
 --  [ ] Better syntax error messages
 --  [ ] Add comments to functions
 --  [ ] Recognize imperial units, convert between them, output largest unit in grocery list
