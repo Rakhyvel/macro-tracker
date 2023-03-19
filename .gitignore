@@ -1,4 +1,8 @@
+# Not letting you see my meals!
 meals.txt
+output.md
+
+# Ignore build stuff
 *.hi
 *.o
 macro_tracker

@@ -1,3 +1,4 @@
+-- To run: ghc macro_tracker.hs && ./macro_tracker
 import Data.Char
 import Text.Printf
 
@@ -50,8 +51,8 @@ data Macros = Macros {
 main :: IO ()
 main = do
     ingredient_contents <- readFile "ingredients.csv"
-    meal_contents <- readFile "meals.txt"
     let db = parseIngredients $ lines ingredient_contents
+    meal_contents <- readFile "meals.txt"
     let meals = parseMeals (lines meal_contents) db
     let groceries = combineGroceryLists $ concatMap ingredients meals
     let mealTable = "## Meals:\n" ++ showMealList meals
@@ -82,6 +83,7 @@ parseIngredients (first : rest)
         carbs = read $ tokens !! 3
         fats = read $ tokens !! 4
         cents = read $ tokens !! 5
+
 
 stripLeadingWhitespace :: String -> String
 stripLeadingWhitespace = unlines . map (dropWhile isSpace) . lines
@@ -181,10 +183,10 @@ showMealList meals =
         ++ "| __Total Fat__ | "           ++ (showGrams $ fats totalMacros)    ++ (concatMap (showGrams . fats . mealMacros) meals) ++ "\n"
         ++ "| __Cost__ | $"               ++ (showCurrency totalMacros)        ++ (concatMap (showCurrency . mealMacros) meals) ++ "\n"
     where
-        showCalories = (++ " | ") . show . truncate . calories 
-        showGrams = (++ "g | ") . show . truncate
+        showCalories = (++ " | ")  . show . truncate . calories 
+        showGrams    = (++ "g | ") . show . truncate
         showCurrency = (++ " | $") . (printf "%.2f") . (/ 100) . cents
-        totalMacros = getTotalMacros (map mealMacros meals)
+        totalMacros  = getTotalMacros (map mealMacros meals)
 
 
 concatTimes::String->Int->String->String
