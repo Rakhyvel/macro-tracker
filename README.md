@@ -1,0 +1,2 @@
+# Macro Tracker
+This application helps plan meal preparations. Simply create a text file with a list of meals and run the macro tracker on it. It will produce an output Markdown file with a table that totals the calories, macros, and cost of each meal. It will also create a weekly grocery list.

@@ -22,13 +22,12 @@ data Ingredient = Ingredient { -- TODO: include units
 } deriving Show
 
 -- Represents an entire meal as read in from the meal text file
--- Has a name, a list of ingredients, and a total amount of macros
 data Meal = Meal {
     -- Name of the meal
     mealName::String,
     -- Ingredients used by this meal
     ingredients::[(Float, String)], -- TODO: include units
-    -- The total combined macros of the ingredients TODO: Remove?
+    -- The macros needed for this meal as defined by the ingredients CSV file
     mealMacros::Macros
 } deriving Show
 
@@ -47,18 +46,27 @@ data Macros = Macros {
 } deriving Show
 
 
--- Starts off the program
+-- Reads in the ingredients CSV, parses the meal text file, 
+-- TODO: Perhaps concat these two IO actions? ROP
 main :: IO ()
 main = do
-    ingredient_contents <- readFile "ingredients.csv"
-    let db = parseIngredients $ lines ingredient_contents
-    meal_contents <- readFile "meals.txt"
-    let meals = parseMeals (lines meal_contents) db
-    let groceries = combineGroceryLists $ concatMap ingredients meals
-    let mealTable = "## Meals:\n" ++ showMealList meals
-    let groceryList = "## Weekly Grocery List:\n|   |   |\n|---|---|\n" ++ showGroceryList groceries 7
-    let output = mealTable ++ "\n\n" ++ groceryList
-    writeFile "output.md" output
+    ingredientContents <- readFile "ingredients.csv"
+    mealContents <- readFile "meals.txt"
+    case parseFiles ingredientContents mealContents of
+        Left err -> putStrLn err
+        Right meals -> do
+            let groceries = combineGroceryLists $ concatMap ingredients meals
+            let mealTable = "## Meals:\n" ++ showMealList meals
+            let groceryList = "## Weekly Grocery List:\n|   |   |\n|---|---|\n" ++ showGroceryList groceries 7
+            writeFile "output.md" (mealTable ++ "\n\n" ++ groceryList)
+
+
+parseFiles::String->String->Either String [Meal]
+parseFiles ingredientContents mealContents = do
+    db <- case parseIngredients (lines ingredientContents) 1 of
+        Left err -> Left err
+        Right db -> return db
+    parseMeals (lines mealContents) 1 db
 
 
 tokenize::String->String->[String]
@@ -69,13 +77,26 @@ tokenize (c : cs) acc
     | otherwise = tokenize cs (acc ++ [c])
 
 
-parseIngredients::[String] -> [Ingredient]
-parseIngredients [] = []
-parseIngredients (first : rest)
-    | null first = parseIngredients rest
-    | head first == '#' = parseIngredients rest
-    | otherwise = Ingredient name (Macros calories protein carbs fats cents) : parseIngredients rest
+parseIngredients::[String] -> Int -> Either String [Ingredient]
+parseIngredients [] _ = Right []
+parseIngredients (first : rest) linenum
+    -- Empty line, skip
+    | null first = parseIngredients rest (linenum + 1)
+    -- Commented out line, skip
+    | head (stripLeadingWhitespace first) == '#' = parseIngredients rest (linenum + 1)
+    -- CSV line doesn't correct columns when tokenized
+    | length tokens /= 6 = case restOutput of 
+        Left prevErr -> Left $ possibleErr ++ prevErr
+        Right _ -> Left $ possibleErr
+    -- CSV line, read in ingredient
+    | otherwise = case restOutput of 
+        Left err -> 
+            restOutput
+        Right goodRestOutput ->
+            Right $ Ingredient name (Macros calories protein carbs fats cents) : goodRestOutput
     where
+        restOutput = parseIngredients rest (linenum + 1)
+        possibleErr = "ingredients.csv:" ++ (show linenum) ++ " error: row should have 6 columns, has " ++ (show $ length tokens) ++ "\n" ++ (show linenum) ++ " |\t" ++ first ++ "\n"
         tokens = tokenize first ""
         name = head tokens
         calories = read $ tokens !! 1
@@ -89,26 +110,43 @@ stripLeadingWhitespace :: String -> String
 stripLeadingWhitespace = unlines . map (dropWhile isSpace) . lines
 
 
-parseMeals::[String] -> [Ingredient] -> [Meal]
-parseMeals [] _ = []
-parseMeals (first : rest) db
-    | null first = parseMeals rest db
-    | head (stripLeadingWhitespace first) == '#' = parseMeals rest db
-    | last first == ':' = Meal (take (length first - 1) first) meal (calculateMealMacros meal db) : parseMeals newRest db
-    | otherwise = error "expected meal"
+parseMeals::[String] -> Int -> [Ingredient] -> Either String [Meal]
+parseMeals [] _ _ = Right []
+parseMeals (first : rest) linenum db
+    -- Empty line, skip
+    | null first = parseMeals rest (linenum + 1) db
+    -- Commented-out line, skip
+    | head (stripLeadingWhitespace first) == '#' = parseMeals rest (linenum + 1) db
+    -- Otherwise, try to parse meal
+    | otherwise = case restOutput of
+        Left prevErr -> 
+            if last first == ':' 
+            then Left $ prevErr
+            else Left $ possibleErr ++ prevErr
+        Right goodRestOutput -> 
+            if last first == ':' 
+            then Right $ Meal nameWithoutColon meal (calculateMealMacros meal db) : goodRestOutput
+            else Left  $ possibleErr
     where
-        (meal, newRest) = parseMeal rest
+        (meal, newRest, linesParsed) = parseMeal rest
+        restOutput = parseMeals newRest (linenum + linesParsed + 1) db
+        nameWithoutColon = (take (length first - 1) first)
+        possibleErr = "meals.txt:" ++ (show linenum) ++ ": error: expected a meal name followed by a `:`\n" ++ (show linenum) ++ " |\t" ++ first ++ "\n"
 
 
-parseMeal::[String]->([(Float, String)], [String])
-parseMeal [] = ([], [])
+parseMeal::[String]->([(Float, String)], [String], Int)
+parseMeal [] = ([], [], 0)
 parseMeal (first:rest)
-    | null first = ([], rest)
-    | head (stripLeadingWhitespace first) == '#' = parseMeal rest
-    | last first /= ':' = ((quantity, ingredient) : restMeal, newRest)
-    | otherwise = ([], rest)
+    -- Empty line, stop parsing this meal
+    | null first = ([], rest, 1)
+    -- Commented-out line, skip this line
+    | head (stripLeadingWhitespace first) == '#' = (restMeal, newRest, linesParsed + 1)
+    -- Line doesn't end in `:`, read ingredient
+    | last first /= ':' = ((quantity, ingredient) : restMeal, newRest, linesParsed + 1)
+    -- Line ends in `:`, begins new meal, stop parsing this meal
+    | otherwise = ([], rest, linesParsed)
     where
-        (restMeal, newRest) = parseMeal rest
+        (restMeal, newRest, linesParsed) = parseMeal rest
         quantity = read $ head $ words first
         ingredient = unwords $ drop 1 $ words first
 
