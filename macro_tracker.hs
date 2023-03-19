@@ -2,7 +2,7 @@ import Data.Char
 import Text.Printf
 
 -- Todo:
---  [ ] Put on Github
+--  [x] Put on Github
 --  [ ] Put meals all on one single table, with the daily total and period total
 --  [ ] Better syntax error messages
 --  [ ] Add comments to functions
@@ -13,29 +13,35 @@ import Text.Printf
 --  [ ] Finalize
 
 -- Represents one ingredient as read in from the ingredients csv
--- Has a name and a list of macros
-data Ingredient = Ingredient {
+data Ingredient = Ingredient { -- TODO: include units
+    -- Name of the ingredient
     ingredientName::String,
-    ingredientMacros::Macros -- TODO: include units
+    -- The macros this ingredient has
+    ingredientMacros::Macros
 } deriving Show
 
 -- Represents an entire meal as read in from the meal text file
 -- Has a name, a list of ingredients, and a total amount of macros
 data Meal = Meal {
+    -- Name of the meal
     mealName::String,
+    -- Ingredients used by this meal
     ingredients::[(Float, String)], -- TODO: include units
+    -- The total combined macros of the ingredients TODO: Remove?
     mealMacros::Macros
 } deriving Show
 
 -- Represents the macros that are tracked in the macro tracker
--- Calories are in kiloCalories
--- Protein, carbs, and (total) fat are in grams. (sat, unsat, trans fats are not distinguished)
--- Cents are in United States cents
 data Macros = Macros {
+    -- Calories, in kiloCalories
     calories::Float,
+    -- Protein, in grams
     protein::Float,
+    -- Total carbohydrates, in grams
     carbs::Float,
+    -- Total fats, in grams
     fats::Float,
+    -- Cost in local minor currency
     cents::Float -- TODO: Add localization?
 } deriving Show
 
@@ -47,8 +53,10 @@ main = do
     meal_contents <- readFile "meals.txt"
     let db = parseIngredients $ lines ingredient_contents
     let meals = parseMeals (lines meal_contents) db
-    let groceryList = combineGroceryLists $ concatMap ingredients meals
-    let output = "## Meals:\n" ++ showMealList meals ++ "## Daily Total: \n" ++ showMacros (getTotalMacros $ map mealMacros meals) ++ "\n\n" ++ "## Weekly Grocery List:\n|   |   |\n|---|---|\n" ++ showGroceryList groceryList 7
+    let groceries = combineGroceryLists $ concatMap ingredients meals
+    let mealTable = "## Meals:\n" ++ showMealList meals
+    let groceryList = "## Weekly Grocery List:\n|   |   |\n|---|---|\n" ++ showGroceryList groceries 7
+    let output = mealTable ++ "\n\n" ++ groceryList
     writeFile "output.md" output
 
 
@@ -164,27 +172,28 @@ combineGroceryLists ((quantity, name):rest) =
 
 showMealList::[Meal]->String
 showMealList [] = ""
-showMealList (Meal name ingredients macros:rest) =
-    "### " ++ name ++ ":\n" ++ showMacros macros ++ "\n" ++ showMealList rest
+showMealList meals =
+    "|    | Daily Total | " ++ (concatMap ((++ " | ") . mealName) meals) ++ "\n"
+        ++ concatTimes "|----" ((length meals) + 1) "|----|\n"
+        ++ "| __Calories__ | "            ++ (showCalories totalMacros)        ++ (concatMap (showCalories . mealMacros) meals) ++ "\n"
+        ++ "| __Protein__ | "             ++ (showGrams $ protein totalMacros) ++ (concatMap (showGrams . protein . mealMacros) meals) ++ "\n"
+        ++ "| __Total Carbohydrates__ | " ++ (showGrams $ carbs totalMacros)   ++ (concatMap (showGrams . carbs . mealMacros) meals) ++ "\n"
+        ++ "| __Total Fat__ | "           ++ (showGrams $ fats totalMacros)    ++ (concatMap (showGrams . fats . mealMacros) meals) ++ "\n"
+        ++ "| __Cost__ | $"               ++ (showCurrency totalMacros)        ++ (concatMap (showCurrency . mealMacros) meals) ++ "\n"
+    where
+        showCalories = (++ " | ") . show . truncate . calories 
+        showGrams = (++ "g | ") . show . truncate
+        showCurrency = (++ " | $") . (printf "%.2f") . (/ 100) . cents
+        totalMacros = getTotalMacros (map mealMacros meals)
+
+
+concatTimes::String->Int->String->String
+concatTimes _ 0 acc = acc
+concatTimes x n acc = concatTimes x (n-1) (x ++ acc)
 
 
 showFloat::Float->String
 showFloat x = if abs(fromIntegral(truncate x) - x) < 0.001 then printf "%.0g" x else printf "%g" x
-
-
-showIngredients::[(Float, String)]->String->String
-showIngredients [] _ = ""
-showIngredients ((quantity, name):rest) prefix = prefix ++ showFloat quantity ++ " " ++ name ++ "\n" ++ showIngredients rest prefix
-
-
-showMacros::Macros->String
-showMacros (Macros calories protein carbs fats cents) =
-    "|   |   |\n|---|---|\n"
-        ++ "| Calories | " ++ (show (truncate calories)) ++ " | \n" 
-        ++ "| Protein | " ++ (show (truncate protein)) ++ "g | \n"  
-        ++ "| Total Carbohydrates | " ++ (show (truncate carbs)) ++ "g | \n" 
-        ++ "| Total Fat | " ++ (show (truncate fats)) ++ "g | \n" 
-        ++ "| Cost | $" ++ (printf "%.2f"  (cents / 100)) ++ " | \n" 
 
 
 showGroceryList::[(Float, String)]->Float->String

@@ -1,57 +1,11 @@
 ## Meals:
-### Coffee:
-|   |   |
-|---|---|
-| Calories | 0 | 
-| Protein | 0g | 
-| Total Carbohydrates | 0g | 
-| Total Fat | 0g | 
-| Cost | $0.79 | 
-
-### Breakfast:
-|   |   |
-|---|---|
-| Calories | 459 | 
-| Protein | 34g | 
-| Total Carbohydrates | 5g | 
-| Total Fat | 31g | 
-| Cost | $2.70 | 
-
-### Grilled Chicken:
-|   |   |
-|---|---|
-| Calories | 722 | 
-| Protein | 72g | 
-| Total Carbohydrates | 49g | 
-| Total Fat | 26g | 
-| Cost | $4.47 | 
-
-### Chili:
-|   |   |
-|---|---|
-| Calories | 299 | 
-| Protein | 30g | 
-| Total Carbohydrates | 15g | 
-| Total Fat | 11g | 
-| Cost | $2.42 | 
-
-### Protein Shake:
-|   |   |
-|---|---|
-| Calories | 455 | 
-| Protein | 37g | 
-| Total Carbohydrates | 39g | 
-| Total Fat | 15g | 
-| Cost | $2.30 | 
-
-## Daily Total: 
-|   |   |
-|---|---|
-| Calories | 1936 | 
-| Protein | 174g | 
-| Total Carbohydrates | 110g | 
-| Total Fat | 85g | 
-| Cost | $12.68 | 
+|    | Daily Total | Coffee | Breakfast | Chicken, Beans & Rice | Chili | Protein Shake | 
+|----|----|----|----|----|----|----|
+| __Calories__ | 1936 | 0 | 459 | 722 | 299 | 455 | 
+| __Protein__ | 174g | 0g | 34g | 72g | 30g | 37g | 
+| __Total Carbohydrates__ | 110g | 0g | 5g | 49g | 15g | 39g | 
+| __Total Fat__ | 85g | 0g | 31g | 26g | 11g | 15g | 
+| __Cost__ | $12.68 | $0.79 | $2.70 | $4.47 | $2.42 | $2.30 | $
 
 
 ## Weekly Grocery List:

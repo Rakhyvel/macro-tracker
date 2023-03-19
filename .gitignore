@@ -1,2 +1,4 @@
 meals.txt
-.gitignore
+*.hi
+*.o
+macro_tracker
