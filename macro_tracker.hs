@@ -1,14 +1,15 @@
 -- To run: ghc macro_tracker.hs && ./macro_tracker
 import Data.Char
 import Text.Printf
+import Text.Read
 
 -- Todo:
 --  [x] Put on Github
 --  [x] Put meals all on one single table, with the daily total and period total
---  [ ] Better syntax error messages
+--  [x] Better syntax error messages
 --  [ ] Add comments to functions
---  [ ] Recognize imperial units, convert between them, output largest unit in grocery list
 --  [ ] Add support for parsing fractions in meal text files
+--  [ ] Recognize imperial units, convert between them, output largest unit in grocery list
 --  [ ] Compile to executable, take in input and ingredients files from command line
 --  [ ] Add macro in meal file for currency, SI-ability, macro requirements, how long the meal prep 'week' is
 --  [ ] Finalize
@@ -89,21 +90,31 @@ parseIngredients (first : rest) linenum
         Left prevErr -> Left $ possibleErr ++ prevErr
         Right _ -> Left $ possibleErr
     -- CSV line, read in ingredient
-    | otherwise = case restOutput of 
-        Left err -> 
-            restOutput
-        Right goodRestOutput ->
-            Right $ Ingredient name (Macros calories protein carbs fats cents) : goodRestOutput
+    | otherwise = do
+        calories <- readField tokens 1 linenum first
+        protein <- readField tokens 2 linenum first
+        carbs <- readField tokens 3 linenum first
+        fats <- readField tokens 4 linenum first
+        cents <- readField tokens 5 linenum first
+        case restOutput of 
+            Left err -> 
+                restOutput
+            Right goodRestOutput ->
+                Right $ Ingredient name (Macros calories protein carbs fats cents) : goodRestOutput
     where
         restOutput = parseIngredients rest (linenum + 1)
         possibleErr = "ingredients.csv:" ++ (show linenum) ++ " error: row should have 6 columns, has " ++ (show $ length tokens) ++ "\n" ++ (show linenum) ++ " |\t" ++ first ++ "\n"
         tokens = tokenize first ""
         name = head tokens
-        calories = read $ tokens !! 1
-        protein = read $ tokens !! 2
-        carbs = read $ tokens !! 3
-        fats = read $ tokens !! 4
-        cents = read $ tokens !! 5
+
+
+readField::Read b => [String]->Int->Int->String -> Either String b
+readField tokens fieldNum linenum first = 
+    case readMaybe $ tokens !! fieldNum of
+        Nothing -> Left $ "ingredients.csv:" ++ (show linenum) ++ " error: unable to parse " ++ (fieldNames !! fieldNum) ++ " field\n" ++ (show linenum) ++ " |" ++ first ++ "\n"
+        Just a -> return a
+    where
+        fieldNames = ["name", "calories", "protein", "fats" , "carbs", "cents"]
 
 
 stripLeadingWhitespace :: String -> String
@@ -118,36 +129,45 @@ parseMeals (first : rest) linenum db
     -- Commented-out line, skip
     | head (stripLeadingWhitespace first) == '#' = parseMeals rest (linenum + 1) db
     -- Otherwise, try to parse meal
-    | otherwise = case restOutput of
-        Left prevErr -> 
-            if last first == ':' 
-            then Left $ prevErr
-            else Left $ possibleErr ++ prevErr
-        Right goodRestOutput -> 
-            if last first == ':' 
-            then Right $ Meal nameWithoutColon meal (calculateMealMacros meal db) : goodRestOutput
-            else Left  $ possibleErr
+    | otherwise = do
+        (meal, newRest, newLinenum) <- case mealParse of
+            Left err -> Left err
+            Right (meal, newRest, linesParsed) -> return (meal, newRest, linesParsed)
+
+        macros <- case calculateMealMacros meal db of
+            Left err -> Left $ "meals.txt:" ++ (show linenum) ++ err ++ "\n"
+            Right macros -> return macros
+
+        case parseMeals newRest (newLinenum) db of
+            Left prevErr -> Left prevErr
+            Right goodRestOutput ->
+                if last first == ':' 
+                then Right $ Meal nameWithoutColon meal macros : goodRestOutput
+                else Left  $ "meals.txt:" ++ (show linenum) ++ ": error: expected a meal name followed by a `:`\n" ++ (show linenum) ++ " |\t" ++ first ++ "\n"
     where
-        (meal, newRest, linesParsed) = parseMeal rest
-        restOutput = parseMeals newRest (linenum + linesParsed + 1) db
+        mealParse = parseMeal rest (linenum + 1)
         nameWithoutColon = (take (length first - 1) first)
-        possibleErr = "meals.txt:" ++ (show linenum) ++ ": error: expected a meal name followed by a `:`\n" ++ (show linenum) ++ " |\t" ++ first ++ "\n"
 
 
-parseMeal::[String]->([(Float, String)], [String], Int)
-parseMeal [] = ([], [], 0)
-parseMeal (first:rest)
+parseMeal::[String]->Int->Either String ([(Float, String)], [String], Int)
+parseMeal [] linenum = Right ([], [], linenum)
+parseMeal (first:rest) linenum
     -- Empty line, stop parsing this meal
-    | null first = ([], rest, 1)
+    | null first = Right ([], rest, linenum)
     -- Commented-out line, skip this line
-    | head (stripLeadingWhitespace first) == '#' = (restMeal, newRest, linesParsed + 1)
-    -- Line doesn't end in `:`, read ingredient
-    | last first /= ':' = ((quantity, ingredient) : restMeal, newRest, linesParsed + 1)
+    | head (stripLeadingWhitespace first) == '#' = restOutput
     -- Line ends in `:`, begins new meal, stop parsing this meal
-    | otherwise = ([], rest, linesParsed)
+    | last first == ':' = Right ([], rest, linenum)
+    -- Line doesn't end in `:`, read ingredient
+    | otherwise = do
+        quantity <- case readMaybe $ head $ words first of 
+            Nothing -> Left $ "meals.txt:" ++ (show linenum) ++ " error: unable to parse ingredient quantity\n" ++ (show linenum) ++ " |" ++ first ++ "\n"
+            Just q -> return q
+        case restOutput of
+            Left err -> restOutput
+            Right (restMeal, newRest, newLinenum) -> Right $ ((quantity, ingredient) : restMeal, newRest, newLinenum + 1)
     where
-        (restMeal, newRest, linesParsed) = parseMeal rest
-        quantity = read $ head $ words first
+        restOutput = parseMeal rest (linenum + 1)
         ingredient = unwords $ drop 1 $ words first
 
 
@@ -161,19 +181,22 @@ sumMacros a b f =
         (f * cents a + cents b)
 
 
-calculateMealMacros::[(Float, String)]->[Ingredient]->Macros
-calculateMealMacros [] _ = Macros 0 0 0 0 0
-calculateMealMacros ((quantity, name):rest) db =
-    sumMacros thisMacro restMacro quantity
-    where
-        thisMacro = ingredientLookup db name
-        restMacro = calculateMealMacros rest db
+calculateMealMacros::[(Float, String)]->[Ingredient]->Either String Macros
+calculateMealMacros [] _ = Right $ Macros 0 0 0 0 0
+calculateMealMacros ((quantity, name):rest) db = do
+    restMacro <- case calculateMealMacros rest db of
+        Left err -> Left err
+        Right restMacro -> return restMacro
+
+    case ingredientLookup db name of
+        Left err -> Left err
+        Right macros -> Right $ sumMacros macros restMacro quantity
 
 
-ingredientLookup::[Ingredient] -> String -> Macros
-ingredientLookup [] ingredient = error $ "couldn't find ingredient " ++ ingredient
+ingredientLookup::[Ingredient] -> String -> Either String Macros
+ingredientLookup [] ingredient = Left $ " error: unknown ingredient `" ++ ingredient ++ "`"
 ingredientLookup (first:rest) name =
-    if ingredientName first == name then ingredientMacros first
+    if ingredientName first == name then Right $ ingredientMacros first
     else ingredientLookup rest name
 
 
