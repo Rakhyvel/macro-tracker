@@ -62,7 +62,7 @@ main = do
         Right meals -> do
             let combinedIngredientQuantities = combineGroceryLists $ concatMap ingredients meals
             let mealTableString = "## Meals:\n" ++ showMealList meals
-            let groceryListString = "## Weekly Grocery List:\n|   |   |\n|---|---|\n" ++ showGroceryList combinedIngredientQuantities 7
+            let groceryListString = "## Weekly Grocery List:\n| Quantity | Ingredient |\n|---|---|\n" ++ showGroceryList combinedIngredientQuantities 7
             writeFile "output.md" (mealTableString ++ "\n\n" ++ groceryListString)
 
 
