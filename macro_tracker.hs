@@ -1,5 +1,7 @@
 -- To run: ghc macro_tracker.hs && ./macro_tracker
 import Data.Char
+import Data.List
+import Data.Maybe
 import Text.Printf
 import Text.Read
 
@@ -7,8 +9,8 @@ import Text.Read
 --  [x] Put on Github
 --  [x] Put meals all on one single table, with the daily total and period total
 --  [x] Better syntax error messages
---  [ ] Add comments to functions
 --  [ ] Add support for parsing fractions in meal text files
+--  [ ] Add comments to functions
 --  [ ] Recognize imperial units, convert between them, output largest unit in grocery list
 --  [ ] Compile to executable, take in input and ingredients files from command line
 --  [ ] Add macro in meal file for currency, SI-ability, macro requirements, how long the meal prep 'week' is
@@ -108,9 +110,9 @@ parseIngredients (first : rest) linenum
         name = head tokens
 
 
-readField::Read b => [String]->Int->Int->String -> Either String b
+readField::[String]->Int->Int->String -> Either String Float
 readField tokens fieldNum linenum first = 
-    case readMaybe $ tokens !! fieldNum of
+    case readQuantity $ tokens !! fieldNum of
         Nothing -> Left $ "ingredients.csv:" ++ (show linenum) ++ " error: unable to parse " ++ (fieldNames !! fieldNum) ++ " field\n" ++ (show linenum) ++ " |" ++ first ++ "\n"
         Just a -> return a
     where
@@ -160,7 +162,7 @@ parseMeal (first:rest) linenum
     | last first == ':' = Right ([], rest, linenum)
     -- Line doesn't end in `:`, read ingredient
     | otherwise = do
-        quantity <- case readMaybe $ head $ words first of 
+        quantity <- case readQuantity $ head $ words first of 
             Nothing -> Left $ "meals.txt:" ++ (show linenum) ++ " error: unable to parse ingredient quantity\n" ++ (show linenum) ++ " |" ++ first ++ "\n"
             Just q -> return q
         case restOutput of
@@ -250,9 +252,24 @@ showMealList meals =
         totalMacros  = getTotalMacros (map mealMacros meals)
 
 
-concatTimes::String->Int->String->String
+concatTimes::String->Int->String -> String
 concatTimes _ 0 acc = acc
 concatTimes x n acc = concatTimes x (n-1) (x ++ acc)
+
+
+readQuantity::String -> Maybe Float
+readQuantity x
+    | isUnique '/' x = do
+        num <- case readMaybe numStr of 
+            Nothing -> Nothing
+            Just num -> return num
+        denom <- case readMaybe $ drop 1 denomStr of 
+            Nothing -> Nothing
+            Just denom -> return denom
+        Just $ num / denom
+    | otherwise = readMaybe x
+    where
+        (numStr, denomStr) = splitAt (fromMaybe 0 (elemIndex '/' x)) x
 
 
 showFloat::Float->String
@@ -268,3 +285,8 @@ showGroceryList ((quantity, name):rest) scale =
 capitalized::String->String
 capitalized [] = []
 capitalized (x:xs) = toUpper x : map toLower xs
+
+isUnique::Char->String->Bool
+isUnique c "" = False
+isUnique c (x:xs) =
+    if c == x then not (c `elem` xs) else isUnique c xs
