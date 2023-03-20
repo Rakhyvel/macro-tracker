@@ -9,12 +9,15 @@ import Text.Read
 --  [x] Put on Github
 --  [x] Put meals all on one single table, with the daily total and period total
 --  [x] Better syntax error messages
---  [ ] Add support for parsing fractions in meal text files
---  [ ] Add comments to functions
+--  [x] Add support for parsing fractions in meal text files
+--  [x] Add comments to functions
+--  [ ] Write the README.md
+--      [ ] Provide a sample-meals.txt
 --  [ ] Recognize imperial units, convert between them, output largest unit in grocery list
+--      [ ] Perhaps have a 'units' file which is basically just a graph with how to convert between units
 --  [ ] Compile to executable, take in input and ingredients files from command line
 --  [ ] Add macro in meal file for currency, SI-ability, macro requirements, how long the meal prep 'week' is
---  [ ] Finalize
+--  [ ] Write tests
 
 -- Represents one ingredient as read in from the ingredients csv
 data Ingredient = Ingredient { -- TODO: include units
@@ -50,37 +53,47 @@ data Macros = Macros {
 
 
 -- Reads in the ingredients CSV, parses the meal text file, 
--- TODO: Perhaps concat these two IO actions? ROP
-main :: IO ()
+main::IO ()
 main = do
     ingredientContents <- readFile "ingredients.csv"
     mealContents <- readFile "meals.txt"
     case parseFiles ingredientContents mealContents of
         Left err -> putStrLn err
         Right meals -> do
-            let groceries = combineGroceryLists $ concatMap ingredients meals
-            let mealTable = "## Meals:\n" ++ showMealList meals
-            let groceryList = "## Weekly Grocery List:\n|   |   |\n|---|---|\n" ++ showGroceryList groceries 7
-            writeFile "output.md" (mealTable ++ "\n\n" ++ groceryList)
+            let combinedIngredientQuantities = combineGroceryLists $ concatMap ingredients meals
+            let mealTableString = "## Meals:\n" ++ showMealList meals
+            let groceryListString = "## Weekly Grocery List:\n|   |   |\n|---|---|\n" ++ showGroceryList combinedIngredientQuantities 7
+            writeFile "output.md" (mealTableString ++ "\n\n" ++ groceryListString)
 
 
-parseFiles::String->String->Either String [Meal]
+-- Takes in the filenames of the ingredients CSV file and the meal text file, parses them, and returns the meals list
+parseFiles::String->String -> Either String [Meal]
 parseFiles ingredientContents mealContents = do
     db <- case parseIngredients (lines ingredientContents) 1 of
         Left err -> Left err
         Right db -> return db
     parseMeals (lines mealContents) 1 db
 
+-- Creates an error message
+errorMessage::String->Int->String -> Either String b
+errorMessage file linenum msg =
+    Left $ file ++ ":" ++ (show linenum) ++ " error: " ++ msg ++ "\n"
 
-tokenize::String->String->[String]
+
+-- Splits a CSV rows on commas. Acc should start at ""
+tokenize::String->String -> [String]
 tokenize "" acc = [acc]
 tokenize (c : cs) acc
+    -- Encounted comma, append acc to output list, reset acc
     | c == ',' = acc : tokenize cs ""
+    -- Leading space, ignore
     | isSpace c && null acc = tokenize cs ""
+    -- Regular character, append to acc
     | otherwise = tokenize cs (acc ++ [c])
 
 
-parseIngredients::[String] -> Int -> Either String [Ingredient]
+-- Takes a list of CSV rows as untokenized strings. Parses the ingredients, and returns either a parse error message or a list of Ingredients
+parseIngredients::[String]->Int -> Either String [Ingredient]
 parseIngredients [] _ = Right []
 parseIngredients (first : rest) linenum
     -- Empty line, skip
@@ -88,9 +101,7 @@ parseIngredients (first : rest) linenum
     -- Commented out line, skip
     | head (stripLeadingWhitespace first) == '#' = parseIngredients rest (linenum + 1)
     -- CSV line doesn't correct columns when tokenized
-    | length tokens /= 6 = case restOutput of 
-        Left prevErr -> Left $ possibleErr ++ prevErr
-        Right _ -> Left $ possibleErr
+    | length tokens /= 6 = errorMessage "ingredients.csv" linenum ("row should have 6 columns, has " ++ (show $ length tokens))
     -- CSV line, read in ingredient
     | otherwise = do
         calories <- readField tokens 1 linenum first
@@ -102,28 +113,29 @@ parseIngredients (first : rest) linenum
             Left err -> 
                 restOutput
             Right goodRestOutput ->
-                Right $ Ingredient name (Macros calories protein carbs fats cents) : goodRestOutput
+                Right $ Ingredient (head tokens) (Macros calories protein carbs fats cents) : goodRestOutput
     where
         restOutput = parseIngredients rest (linenum + 1)
-        possibleErr = "ingredients.csv:" ++ (show linenum) ++ " error: row should have 6 columns, has " ++ (show $ length tokens) ++ "\n" ++ (show linenum) ++ " |\t" ++ first ++ "\n"
         tokens = tokenize first ""
-        name = head tokens
 
 
+-- Reads in a numeric quantity from a tokenized CSV row. Returns either a read error message or the value
 readField::[String]->Int->Int->String -> Either String Float
 readField tokens fieldNum linenum first = 
     case readQuantity $ tokens !! fieldNum of
-        Nothing -> Left $ "ingredients.csv:" ++ (show linenum) ++ " error: unable to parse " ++ (fieldNames !! fieldNum) ++ " field\n" ++ (show linenum) ++ " |" ++ first ++ "\n"
+        Nothing -> errorMessage "ingredients.csv" linenum ("unable to parse " ++ (fieldNames !! fieldNum) ++ " field")
         Just a -> return a
     where
         fieldNames = ["name", "calories", "protein", "fats" , "carbs", "cents"]
 
 
-stripLeadingWhitespace :: String -> String
+-- Strips off any leading whitespace
+stripLeadingWhitespace::String -> String
 stripLeadingWhitespace = unlines . map (dropWhile isSpace) . lines
 
 
-parseMeals::[String] -> Int -> [Ingredient] -> Either String [Meal]
+-- Parses the list of meal text file along with the ingredient database and returns either a parse error or a list of meals
+parseMeals::[String]->Int->[Ingredient] -> Either String [Meal]
 parseMeals [] _ _ = Right []
 parseMeals (first : rest) linenum db
     -- Empty line, skip
@@ -132,7 +144,7 @@ parseMeals (first : rest) linenum db
     | head (stripLeadingWhitespace first) == '#' = parseMeals rest (linenum + 1) db
     -- Otherwise, try to parse meal
     | otherwise = do
-        (meal, newRest, newLinenum) <- case mealParse of
+        (meal, newRest, newLinenum) <- case parseMeal rest (linenum + 1) of
             Left err -> Left err
             Right (meal, newRest, linesParsed) -> return (meal, newRest, linesParsed)
 
@@ -144,14 +156,12 @@ parseMeals (first : rest) linenum db
             Left prevErr -> Left prevErr
             Right goodRestOutput ->
                 if last first == ':' 
-                then Right $ Meal nameWithoutColon meal macros : goodRestOutput
-                else Left  $ "meals.txt:" ++ (show linenum) ++ ": error: expected a meal name followed by a `:`\n" ++ (show linenum) ++ " |\t" ++ first ++ "\n"
-    where
-        mealParse = parseMeal rest (linenum + 1)
-        nameWithoutColon = (take (length first - 1) first)
+                then Right $ Meal (take (length first - 1) first) meal macros : goodRestOutput
+                else errorMessage "meals.txt" linenum "expected a meal name followed by a `:`"
 
 
-parseMeal::[String]->Int->Either String ([(Float, String)], [String], Int)
+-- Parses a single meal from the meal text file, returns either an error or the list of ingredients for a meal
+parseMeal::[String]->Int -> Either String ([(Float, String)], [String], Int)
 parseMeal [] linenum = Right ([], [], linenum)
 parseMeal (first:rest) linenum
     -- Empty line, stop parsing this meal
@@ -163,7 +173,7 @@ parseMeal (first:rest) linenum
     -- Line doesn't end in `:`, read ingredient
     | otherwise = do
         quantity <- case readQuantity $ head $ words first of 
-            Nothing -> Left $ "meals.txt:" ++ (show linenum) ++ " error: unable to parse ingredient quantity\n" ++ (show linenum) ++ " |" ++ first ++ "\n"
+            Nothing -> errorMessage "meals.txt" linenum "unable to parse ingredient quantity"
             Just q -> return q
         case restOutput of
             Left err -> restOutput
@@ -173,7 +183,8 @@ parseMeal (first:rest) linenum
         ingredient = unwords $ drop 1 $ words first
 
 
-sumMacros::Macros->Macros->Float->Macros
+-- Combines two macros with a scalar for the first macro
+sumMacros::Macros->Macros->Float -> Macros
 sumMacros a b f =
     Macros
         (f * calories a + calories b)
@@ -183,7 +194,8 @@ sumMacros a b f =
         (f * cents a + cents b)
 
 
-calculateMealMacros::[(Float, String)]->[Ingredient]->Either String Macros
+-- Uses the ingredients DB to combine a list of quantities and ingredients names into a single Macros structure
+calculateMealMacros::[(Float, String)]->[Ingredient] -> Either String Macros
 calculateMealMacros [] _ = Right $ Macros 0 0 0 0 0
 calculateMealMacros ((quantity, name):rest) db = do
     restMacro <- case calculateMealMacros rest db of
@@ -195,47 +207,59 @@ calculateMealMacros ((quantity, name):rest) db = do
         Right macros -> Right $ sumMacros macros restMacro quantity
 
 
-ingredientLookup::[Ingredient] -> String -> Either String Macros
+-- Finds the macros associated with an ingredient
+ingredientLookup::[Ingredient]->String -> Either String Macros
 ingredientLookup [] ingredient = Left $ " error: unknown ingredient `" ++ ingredient ++ "`"
 ingredientLookup (first:rest) name =
     if ingredientName first == name then Right $ ingredientMacros first
     else ingredientLookup rest name
 
 
-mealLookup::[(Float, String)]->String->Int->Int
+-- Combines a list of macros into a single macro
+-- TODO: Make macros implement Monoid?
+getTotalMacros::[Macros]->Macros
+getTotalMacros [] = Macros 0 0 0 0 0
+getTotalMacros (thisMacro : rest) =
+    sumMacros thisMacro (getTotalMacros rest) 1
+
+
+-- Replaces an element in a list at an index
+replace :: [a]->Int->a -> [a]
+replace list index element =
+    case splitAt index list of
+        (before, _:after) -> 
+            before ++ element: after
+        _ -> 
+            list
+
+
+-- Finds the index of an ingredient in a meals ingredient list. Acc should be 0 by default. Returns -1 if not found 
+-- TODO: return Nothing if not found?
+-- TODO: change name? kinda confusing
+mealLookup::[(Float, String)]->String->Int -> Int
 mealLookup [] _ _ = -1
 mealLookup ((_, first):rest) name acc =
     if first == name then acc
     else mealLookup rest name (acc + 1)
 
 
-getTotalMacros::[Macros]->Macros
-getTotalMacros [] = Macros 0 0 0 0 0
-getTotalMacros (thisMacro : rest) =
-    sumMacros thisMacro restMacro 1
-    where
-        restMacro = getTotalMacros rest
-
-
-replace :: [a] -> Int -> a -> [a]
-replace xs i e =
-    case splitAt i xs of
-        (before, _:after) -> before ++ e: after
-        _ -> xs
-
-
-combineGroceryLists::[(Float, String)]->[(Float, String)]
+-- Takes in a list of quantities of ingredients, combines them so that each ingredient is in the output list once with the total quantity
+combineGroceryLists::[(Float, String)] -> [(Float, String)]
 combineGroceryLists [] = []
 combineGroceryLists ((quantity, name):rest) =
-    if i == -1 then (quantity, name):other
-    else replace other i (quantity + oldQuantity, name)
+    if i == -1 
+        -- Ingredient was not found in the ingredient list, add it
+        then (quantity, name):restOutput
+        -- Ingredient was found in the list, increment the quantity
+        else replace restOutput i (quantity + oldQuantity, name)
     where
-        other = combineGroceryLists rest
-        i = mealLookup other name 0
-        (oldQuantity, _) = other !! i
+        restOutput = combineGroceryLists rest
+        i = mealLookup restOutput name 0
+        (oldQuantity, _) = restOutput !! i
 
 
-showMealList::[Meal]->String
+-- Constructs the meals table string from a list of meals
+showMealList::[Meal] -> String
 showMealList [] = ""
 showMealList meals =
     "|    | Daily Total | " ++ (concatMap ((++ " | ") . mealName) meals) ++ "\n"
@@ -252,14 +276,17 @@ showMealList meals =
         totalMacros  = getTotalMacros (map mealMacros meals)
 
 
+-- Repeats a string n times. Acc should be "" by default
 concatTimes::String->Int->String -> String
 concatTimes _ 0 acc = acc
 concatTimes x n acc = concatTimes x (n-1) (x ++ acc)
 
 
+-- Reads either a fraction or a decimal from a string. Fractions may only contain 1 '/' character
 readQuantity::String -> Maybe Float
 readQuantity x
     | isUnique '/' x = do
+        let (numStr, denomStr) = splitAt (fromMaybe 0 (elemIndex '/' x)) x
         num <- case readMaybe numStr of 
             Nothing -> Nothing
             Just num -> return num
@@ -268,24 +295,29 @@ readQuantity x
             Just denom -> return denom
         Just $ num / denom
     | otherwise = readMaybe x
-    where
-        (numStr, denomStr) = splitAt (fromMaybe 0 (elemIndex '/' x)) x
 
 
-showFloat::Float->String
-showFloat x = if abs(fromIntegral(truncate x) - x) < 0.001 then printf "%.0g" x else printf "%g" x
+-- If the input float is "close enough"  to its rounded integer, shown as an integer, otherwise shown as a float
+showFloat::Float -> String
+showFloat x = if abs(fromIntegral(round x) - x) < 0.001 then printf "%.0g" x else printf "%g" x
 
 
-showGroceryList::[(Float, String)]->Float->String
+-- Constructs the grocery list table string from a list of quantities of ingredients
+showGroceryList::[(Float, String)]->Float -> String
 showGroceryList [] _ = ""
 showGroceryList ((quantity, name):rest) scale =
     "| " ++ showFloat (scale * quantity) ++ " | " ++ (capitalized name) ++ " | \n" ++ showGroceryList rest scale
 
 
+-- Capitalizes the first letter of a string, with the rest in lowercase
+-- TODO: rename to toCapitalized
 capitalized::String->String
 capitalized [] = []
 capitalized (x:xs) = toUpper x : map toLower xs
 
+
+-- Returns true if the character appears exactly once in the string
+-- TODO: rename to `lone`, generalize?
 isUnique::Char->String->Bool
 isUnique c "" = False
 isUnique c (x:xs) =
