@@ -37,8 +37,6 @@ Here is an example output from the sample meal text file above:
 A grocery list is also provided after the table of meals. The grocery list includes the combined quantities of the ingredients used from all meals, multiplied by 7 for a full week.
 
 Here is an example grocery list output given the above meals text file.
-|   |   |
-|---|---|
 | 7 cup | macaroni |
 | 3.5 cup | cheddar cheese |
 | 3.5 cup | monterrey jack cheese |
